@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -52,6 +53,11 @@ class Searcher:
         self.bm25: BM25Okapi | None = None
         self.client: QdrantClient | None = None
         self.embedder: Embedder | None = None
+        # Query-embedding LRU cache: repeated queries (autocomplete, popular
+        # searches, retries) skip the fastembed call entirely. Same idea as
+        # NB7's semantic cache, applied to exact-match query strings.
+        self._query_vec_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._query_vec_cache_max = 4096
 
     @property
     def size(self) -> int:
@@ -160,9 +166,21 @@ class Searcher:
             for i in ranked
         ]
 
+    def _embed_query_cached(self, query: str) -> list[float]:
+        cached = self._query_vec_cache.get(query)
+        if cached is not None:
+            self._query_vec_cache.move_to_end(query)
+            return cached
+        assert self.embedder is not None
+        vec = next(self.embedder.embed([query])).tolist()
+        self._query_vec_cache[query] = vec
+        if len(self._query_vec_cache) > self._query_vec_cache_max:
+            self._query_vec_cache.popitem(last=False)
+        return vec
+
     def _search_semantic(self, query: str, top_k: int) -> list[SearchHit]:
         assert self.client is not None and self.embedder is not None
-        q_vec = next(self.embedder.embed([query])).tolist()
+        q_vec = self._embed_query_cached(query)
         result = self.client.query_points(
             collection_name=COLLECTION,
             query=q_vec,

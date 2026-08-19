@@ -22,10 +22,11 @@ import json
 import statistics
 from pathlib import Path
 
-from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from rank_bm25 import BM25Okapi
+
+from app.embeddings import Embedder
 
 DATA = Path(_setup.__file__).resolve().parent.parent / "data"
 
@@ -40,11 +41,11 @@ tokenized = [(d["title"] + " " + d["text"]).lower().split() for d in docs]
 bm25 = BM25Okapi(tokenized)
 
 # Vector
-embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+embedder = Embedder()  # backend selected by EMBEDDING_BACKEND env var
 client = QdrantClient(":memory:")
 client.create_collection(
     collection_name="lab19",
-    vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+    vectors_config=VectorParams(size=embedder.dim, distance=Distance.COSINE),
 )
 BATCH = 64
 points = []
@@ -58,7 +59,7 @@ for start in range(0, len(docs), BATCH):
             payload={"doc_id": d["doc_id"], "topic": d["topic"]},
         ))
 client.upsert(collection_name="lab19", points=points)
-print(f"BM25 + vector indices ready ({len(docs)} docs)")
+print(f"BM25 + vector indices ready ({len(docs)} docs), embedding backend: {embedder.backend} -> {embedder.model_name}")
 
 # %% [markdown]
 # ## 2. Per-mode search functions

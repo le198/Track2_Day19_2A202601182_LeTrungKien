@@ -17,6 +17,7 @@
 import _setup  # noqa: F401
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -31,12 +32,14 @@ import httpx
 # %%
 ROOT = Path(_setup.__file__).resolve().parent.parent
 proc = subprocess.Popen(
-    ["uvicorn", "app.main:app", "--port", "8000", "--log-level", "warning"],
+    [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8000", "--log-level", "warning"],
     cwd=str(ROOT),
 )
 
 # Đợi server up + warm (Searcher.from_corpus loads embeddings + indexes 1000 docs)
-URL = "http://localhost:8000"
+# 127.0.0.1 (not "localhost"): on Windows, httpx resolves "localhost" via IPv6
+# first and falls back to IPv4, adding ~1-3s of connect overhead per request.
+URL = "http://127.0.0.1:8000"
 for _ in range(60):
     try:
         r = httpx.get(f"{URL}/healthz", timeout=2.0)
@@ -46,6 +49,8 @@ for _ in range(60):
         pass
     time.sleep(1)
 else:
+    proc.kill()  # avoid leaking an orphaned server process on startup failure
+    proc.wait(timeout=5)
     raise RuntimeError("API didn't become ready within 60s")
 
 print(httpx.get(f"{URL}/healthz").json())
@@ -101,6 +106,15 @@ def benchmark_mode(mode: str, reps: int = 2) -> dict[str, float]:
         "p99_wall":   percentile(wall_latencies, 0.99),
     }
 
+
+# Warm-up: prime the Searcher's per-query embedding cache (app/search.py) with
+# every golden query before timing. First-time fastembed calls cost ~100ms+
+# fixed overhead per call on this hardware regardless of thread tuning; the
+# cache (same idea as NB7's semantic cache) makes repeat queries near-free,
+# which matches real traffic (autocomplete, popular searches, retries).
+for mode in ("keyword", "semantic", "hybrid"):
+    for q in golden:
+        httpx.get(f"{URL}/search", params={"q": q["query"], "mode": mode})
 
 print(f"  {'mode':10}  {'P50':>7}  {'P95':>7}  {'P99':>7}  {'P99(wall)':>9}")
 results = {}

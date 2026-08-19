@@ -51,6 +51,13 @@ else
   fi
 fi
 
+# Register the venv's ipykernel with an absolute interpreter path. Without
+# this, some environments fall back to a template kernel.json with a bare
+# "python" argv[0], which resolves via PATH at kernel-launch time instead of
+# always using this venv -- silently running notebooks under the wrong
+# interpreter (and orphaning subprocesses) if PATH isn't exactly right.
+python -m ipykernel install --sys-prefix --name python3 --display-name "Python 3 (Day19 lite venv)"
+
 # ── 4. Convert Jupytext sources to .ipynb ───────────────────────────────
 # `_setup.py` is a helper module, not a notebook -- converting it produces
 # a _setup.ipynb that fails on execute. Only convert numbered notebooks.
