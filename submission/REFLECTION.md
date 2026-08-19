@@ -1,7 +1,7 @@
 # Reflection — Lab 19
 
 **Tên:** Lê Trung Kiên
-**Cohort:** _<xin điền, vd A20-K1>_
+**Cohort:** 2A202601182 - K3B 
 **Path đã chạy:** lite
 
 ---
